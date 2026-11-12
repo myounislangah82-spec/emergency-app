@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NearHelp</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#d62839">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#f5f6f8;--sf:#fff;--ink:#17202b;--mut:#5d6877;--line:#dde1e7;--sos:#d62839;--acc:#0f6e63;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10151c;--sf:#19212b;--ink:#eef1f5;--mut:#9aa5b4;--line:#2b3542;--acc:#38b2a0;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.app{max-width:480px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:26px;margin:0;letter-spacing:-.02em}h2{font-size:16px;margin:0}
+.sub{color:var(--mut);font-size:14px;margin:2px 0 14px}
+.sos{display:block;width:100%;border:0;border-radius:18px;background:var(--sos);color:#fff;padding:18px;text-align:left;cursor:pointer;font:inherit}
+.sos b{display:block;font-size:22px}.sos span{font-size:14px;opacity:.92}
+.sosres{display:none;gap:10px;margin-top:10px}.sosres.on{display:grid}
+.sosres a{display:block;background:var(--sf);border:2px solid var(--sos);border-radius:14px;padding:12px;color:var(--ink);text-decoration:none}
+.sosres small{color:var(--mut)}
+#map{height:300px;margin:16px 0 6px;border-radius:16px;border:1px solid var(--line)}
+.status{font-size:13px;color:var(--mut);margin-bottom:8px}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+select,input{font:inherit;color:var(--ink);background:var(--sf);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px}
+.chip{flex:none;border:1px solid var(--line);background:var(--sf);color:var(--ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:14px;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.list{display:grid;gap:10px}
+.card{background:var(--sf);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:grid;grid-template-columns:36px 1fr;gap:12px}
+.card.sel{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc)}
+.dot{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800}
+.meta{color:var(--mut);font-size:13px}.acts{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:7px 12px;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;display:inline-block}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.chat{margin-top:22px;background:var(--sf);border:1px solid var(--line);border-radius:16px;padding:14px}
+.log{display:grid;gap:8px;max-height:340px;overflow-y:auto;margin:10px 0}
+.msg{padding:9px 12px;border-radius:12px;max-width:90%;font-size:15px}
+.msg.bot{background:var(--bg);justify-self:start}.msg.me{background:var(--acc);color:#fff;justify-self:end}
+.ask{display:flex;gap:8px}.ask input{flex:1;min-width:0}
+details.sec,.sec{margin-top:20px}details.sec{background:var(--sf);border:1px solid var(--line);border-radius:16px;padding:12px 14px}summary{cursor:pointer;font-weight:700}.fm{display:grid;gap:8px;margin-top:10px}
+.note{color:var(--mut);font-size:12px;margin-top:18px}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+</style>
+</head>
+<body>
+<main class="app">
+  <h1>NearHelp</h1>
+  <p class="sub">Real places around you: hospitals, medical stores, police, fuel, mechanics, taxis and hostels.</p>
+  <button class="sos" id="sos"><b>I need help now</b><span>Call rescue or police, or find the nearest hospital</span></button>
+  <div class="sosres" id="sosres"></div>
+  <div id="map"></div>
+  <div class="status" id="status">Finding your location…</div>
+  <div class="bar"><label for="rad">Search radius</label>
+    <select id="rad"><option value="3000">3 km</option><option value="5000" selected>5 km</option><option value="10000">10 km</option></select>
+    <button class="btn" id="loc">Use my location</button></div>
+  <div class="chips" id="chips" role="group" aria-label="Filter by type"></div>
+  <div class="list" id="list"></div>
+  <section class="sec"><h2>Saved places</h2><div class="list" id="saved" style="margin-top:10px"></div></section>
+  <details class="sec"><summary>Share my location and emergency contacts</summary><div class="fm">
+    <button class="btn pri" id="share">Share my location</button><div id="shout" class="meta"></div>
+    <h2>Emergency contacts</h2><div id="cons"></div>
+    <input id="cn" placeholder="Name" aria-label="Contact name"><input id="cp" placeholder="Phone, e.g. 0300 1234567" inputmode="tel" aria-label="Contact phone">
+    <button class="btn" id="addcon">Save contact</button><p class="meta">Contacts are stored only in this browser. Up to 5.</p></div></details>
+  <details class="sec"><summary>Add a place</summary><div class="fm">
+    <p class="meta">The place is added at your current location (the blue dot). Tap the map first to move it.</p>
+    <input id="an" placeholder="Place name" aria-label="Place name"><select id="at" aria-label="Type"></select>
+    <input id="ap" placeholder="Phone (optional)" inputmode="tel" aria-label="Phone">
+    <button class="btn pri" id="addp">Add place</button><div id="addout" class="meta"></div></div></details>
+  <section class="chat" aria-label="Assistant">
+    <h2>Ask the assistant</h2>
+    <div class="log" id="log" aria-live="polite"></div>
+    <div class="ask"><input id="q" placeholder="Ask in English, Urdu or Sindhi" autocomplete="off"><button class="btn pri" id="send">Send</button></div>
+  </section>
+  <p class="note">Place data comes from OpenStreetMap contributors and may be incomplete. In an emergency call 1122 (rescue) or 15 (police).</p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+var CATS={hospital:{n:"Hospitals",c:"#d62839",g:"H"},police:{n:"Police",c:"#2d5bd7",g:"P"},pump:{n:"Petrol pumps",c:"#c77700",g:"F"},taxi:{n:"Taxis",c:"#0f7b6c",g:"T"},hostel:{n:"Hostels",c:"#7b4bd1",g:"B"},mechanic:{n:"Mechanics",c:"#5b6573",g:"M"},pharmacy:{n:"Medical stores",c:"#16945a",g:"+"}};
+var me=null,places=[],cat="all",sel=null,map=L.map("map").setView([25.39,68.37],13),layer=L.layerGroup().addTo(map),meMark=null;
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function dist(a,b,c,d){var r=Math.PI/180,x=(c-a)*r,y=(d-b)*r,h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)*Math.sin(y/2);return 12742*Math.asin(Math.sqrt(h))}
+function km(d){return d<1?Math.round(d*1000)+" m":d.toFixed(1)+" km"}
+function typeOf(t){var a=t.amenity,o=t.tourism;if(a==="hospital"||a==="clinic")return"hospital";if(a==="police")return"police";if(a==="fuel")return"pump";if(a==="taxi")return"taxi";if(o==="hostel"||o==="guest_house")return"hostel";if(a==="pharmacy")return"pharmacy";if(t.shop==="car_repair"||t.shop==="motorcycle_repair"||t.shop==="tyres")return"mechanic";return null}
+function near(t,k){return places.filter(function(p){return!t||p.t===t}).slice(0,k||1)}
+function setMe(lat,lon){me={lat:lat,lon:lon};if(meMark)meMark.setLatLng([lat,lon]);else meMark=L.circleMarker([lat,lon],{radius:9,color:"#fff",weight:2,fillColor:"#2d8cff",fillOpacity:1}).addTo(map).bindTooltip("You");map.setView([lat,lon],14);load()}
+function locate(){$("status").textContent="Finding your location…";
+  if(!navigator.geolocation){$("status").textContent="Location is not available. Tap the map to set where you are.";return}
+  navigator.geolocation.getCurrentPosition(function(p){setMe(p.coords.latitude,p.coords.longitude)},function(){$("status").textContent="Location was blocked. Tap the map to set where you are."},{enableHighAccuracy:true,timeout:15000})}
+map.on("click",function(e){setMe(e.latlng.lat,e.latlng.lng)});
+$("loc").onclick=locate;$("rad").onchange=function(){if(me)load()};
+function overpass(q){return fetch("/api/places",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lat:me.lat,lon:me.lon,r:+$("rad").value})}).then(function(x){if(!x.ok)throw 0;return x.json()})}
+function load(){
+  var r=$("rad").value,a="(around:"+r+","+me.lat+","+me.lon+")";
+  var q='[out:json][timeout:25];(nwr["amenity"~"^(hospital|clinic|police|fuel|taxi)$"]'+a+';nwr["tourism"~"^(hostel|guest_house)$"]'+a+');out center tags 150;';
+  $("status").textContent="Searching nearby places…";
+  overpass(q)
+  .then(function(j){
+    places=j.elements.map(function(e){var t=e.tags||{},ty=typeOf(t),lat=e.lat||(e.center&&e.center.lat),lon=e.lon||(e.center&&e.center.lon);
+      if(!ty||!lat)return null;return{id:e.type+e.id,t:ty,n:t.name||t["name:en"]||(CATS[ty].n.replace(/s$/,"")+" (unnamed)"),lat:lat,lon:lon,p:t.phone||t["contact:phone"]||"",h:t.opening_hours||"",d:dist(me.lat,me.lon,lat,lon)}}).filter(Boolean).concat(commNear()).sort(function(a,b){return a.d-b.d});
+    $("status").textContent=places.length?places.length+" places found within "+(r/1000)+" km.":"Nothing found in this radius. Try a larger one.";
+    sel=null;render()})
+  .catch(function(){places=commNear().sort(function(a,b){return a.d-b.d});$("status").textContent="Could not load places. Check your internet connection and try again.";render()})}
+function shown(){return places.filter(function(p){return cat==="all"||p.t===cat})}
+function drawMap(){layer.clearLayers();shown().forEach(function(p){var c=CATS[p.t];
+  L.marker([p.lat,p.lon],{icon:L.divIcon({className:"",html:'<div style="width:'+(sel===p.id?32:26)+'px;height:'+(sel===p.id?32:26)+'px;border-radius:50%;background:'+c.c+';color:#fff;font:800 13px system-ui;display:grid;place-items:center;border:2px solid #fff">'+c.g+'</div>',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(layer).on("click",function(){pick(p.id)})})}
+function drawChips(){var h='<button class="chip" aria-pressed="'+(cat==="all")+'" data-c="all">All</button>';for(var k in CATS)h+='<button class="chip" aria-pressed="'+(cat===k)+'" data-c="'+k+'">'+CATS[k].n+'</button>';
+  $("chips").innerHTML=h;$("chips").querySelectorAll(".chip").forEach(function(b){b.onclick=function(){cat=b.dataset.c;sel=null;render()}})}
+function card(p,s){var c=CATS[p.t],tel=(p.p||"").split(";")[0].replace(/[^\d+]/g,"");
+  return'<article class="card'+(!s&&sel===p.id?" sel":"")+'" id="'+(s?"s":"p")+p.id+'"><div class="dot" style="background:'+c.c+'">'+c.g+'</div><div><h2>'+esc(p.n)+(p.c?' <span class="meta">(community)</span>':'')+'</h2><div class="meta">'+(me?km(p.d)+' away':c.n)+(p.h?". "+esc(p.h):"")+'</div><div class="acts">'+(tel?'<a class="btn pri" href="tel:'+tel+'">Call '+esc(p.p.split(";")[0])+'</a>':'')+'<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+p.lat+','+p.lon+'">Directions</a><button class="btn" data-fav="'+p.id+'">'+(isFav(p.id)?"★ Saved":"☆ Save")+'</button></div></div></article>'}
+function drawList(){$("list").innerHTML=shown().slice(0,40).map(card).join("")}
+function render(){drawChips();drawMap();drawList();drawSaved()}
+function pick(id){sel=id;var p=places.filter(function(x){return x.id===id})[0];if(cat!=="all"&&cat!==p.t)cat="all";render();map.panTo([p.lat,p.lon]);var e=$("p"+id);if(e)e.scrollIntoView({behavior:"smooth",block:"center"})}
+$("sos").onclick=function(){var h=near("hospital")[0],p=near("police")[0],s='<a href="tel:1122"><b>Call 1122 (rescue)</b><br><small>Ambulance and emergency services</small></a><a href="tel:15"><b>Call 15 (police)</b><br><small>Police emergency line</small></a>';
+  [h,p].forEach(function(x){if(x)s+='<a href="https://www.google.com/maps/dir/?api=1&destination='+x.lat+','+x.lon+'" target="_blank" rel="noopener"><b>'+esc(x.n)+'</b><br><small>'+km(x.d)+' away. Tap for directions</small></a>'});
+  CON.forEach(function(c){s+='<a href="tel:'+c.p+'"><b>Call '+esc(c.n)+'</b><br><small>Your emergency contact</small></a>'});
+  $("sosres").className="sosres on";$("sosres").innerHTML=s};
+/* assistant: calls /api/chat (server.js), falls back to keywords if the server is not running */
+var KW={hospital:/hospital|doctor|hurt|injur|pain|bleed|accident|ambulance|sick|clinic|chest|fever/,police:/police|theft|stolen|robb|crime|fight|threat|harass|missing/,pump:/petrol|fuel|gas|diesel|pump|refill/,taxi:/taxi|cab|ride|rickshaw|transport|van/,hostel:/hostel|stay|room|sleep|night|lodg/,mechanic:/mechanic|repair|puncture|tyre|tire|breakdown|garage|bike|car broke|workshop/,pharmacy:/pharmacy|medicine|medical store|chemist|tablet|drug store/};
+function say(w,h){var d=document.createElement("div");d.className="msg "+w;d.innerHTML=h;$("log").appendChild(d);$("log").scrollTop=1e9;return d}
+function ask(text){text=text.trim();if(!text)return;$("q").value="";say("me",esc(text));
+  if(!me){say("bot","I need your location first. Allow location access or tap the map.");return}
+  var ctx=Object.keys(CATS).map(function(k){var n=near(k)[0];return n?k+": "+n.n+" ("+km(n.d)+")":null}).filter(Boolean).join("; ");
+  fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text,nearby:ctx})})
+  .then(function(r){if(!r.ok)throw 0;return r.json()})
+  .then(function(j){reply(j.category,j.reply)})
+  .catch(function(){var c="none";for(var k in KW)if(c==="none"&&KW[k].test(text.toLowerCase()))c=k;reply(c,c==="none"?"I can help you find hospitals, police stations, petrol pumps, taxis and hostels. What do you need?":"Here are the closest "+CATS[c].n.toLowerCase()+":")})}
+function reply(c,t){var d=say("bot",esc(t));if(!CATS[c])return;var r=near(c,2);
+  if(!r.length){d.innerHTML+="<br>I could not find any in this radius. Try a larger one.";return}
+  r.forEach(function(p){d.innerHTML+="<br><b>"+esc(p.n)+"</b>, "+km(p.d)+"<br>"+'<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+p.lat+','+p.lon+'">Directions</a> <button class="btn" data-s="'+p.id+'">Show on map</button>'});
+  d.querySelectorAll("[data-s]").forEach(function(b){b.onclick=function(){pick(b.dataset.s)}});cat=c;sel=r[0].id;render()}
+$("send").onclick=function(){ask($("q").value)};$("q").onkeydown=function(e){if(e.key==="Enter")ask($("q").value)};
+/* saved places, contacts, share location, community places */
+function ls(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
+function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+var FAV=ls("nh_fav",[]),CON=ls("nh_con",[]),COMM=[];
+function isFav(id){return FAV.some(function(f){return f.id===id})}
+function toggleFav(id){var p=places.concat(FAV).filter(function(x){return x.id===id})[0];if(!p)return;
+  if(isFav(id))FAV=FAV.filter(function(f){return f.id!==id});else FAV.push({id:p.id,t:p.t,n:p.n,lat:p.lat,lon:p.lon,p:p.p,h:p.h,c:p.c});
+  sv("nh_fav",FAV);render()}
+function drawSaved(){var e=$("saved");if(!FAV.length){e.innerHTML='<p class="meta">Tap ☆ Save on any place to keep it here.</p>';return}
+  e.innerHTML=FAV.map(function(f){return card(Object.assign({},f,{d:me?dist(me.lat,me.lon,f.lat,f.lon):0}),true)}).join("")}
+function drawCon(){$("cons").innerHTML=CON.map(function(c,i){return'<div class="acts"><b>'+esc(c.n)+'</b><a class="btn" href="tel:'+c.p+'">Call</a><button class="btn" data-del="'+i+'">Remove</button></div>'}).join("")||'<p class="meta">No contacts yet.</p>'}
+document.addEventListener("click",function(e){var t=e.target;if(t.dataset&&t.dataset.fav)toggleFav(t.dataset.fav);if(t.dataset&&t.dataset.del){CON.splice(+t.dataset.del,1);sv("nh_con",CON);drawCon()}});
+$("addcon").onclick=function(){var n=$("cn").value.trim(),p=$("cp").value.replace(/[^\d+]/g,"");if(!n||p.length<5||CON.length>=5)return;CON.push({n:n,p:p});sv("nh_con",CON);$("cn").value="";$("cp").value="";drawCon()};
+function msg(){return"I need help. My location: https://www.google.com/maps?q="+me.lat+","+me.lon}
+function wa(p){p=p.replace(/\D/g,"");if(p.charAt(0)==="0")p="92"+p.slice(1);return p}
+$("share").onclick=function(){if(!me){$("shout").textContent="Set your location first: allow location or tap the map.";return}
+  var m=encodeURIComponent(msg()),h='<a class="btn pri" target="_blank" rel="noopener" href="https://wa.me/?text='+m+'">WhatsApp (pick a contact)</a> <button class="btn" id="cpy">Copy link</button>';
+  CON.forEach(function(c){h+='<div class="acts"><b>'+esc(c.n)+'</b><a class="btn" target="_blank" rel="noopener" href="https://wa.me/'+wa(c.p)+'?text='+m+'">WhatsApp</a><a class="btn" href="sms:'+c.p+'?body='+m+'">SMS</a></div>'});
+  $("shout").innerHTML=h;$("cpy").onclick=function(){if(navigator.clipboard)navigator.clipboard.writeText(msg());this.textContent="Copied"}};
+function loadComm(){fetch("/api/community").then(function(r){return r.json()}).then(function(j){COMM=j}).catch(function(){})}
+function commNear(){if(!me)return[];var r=+$("rad").value/1000;return COMM.map(function(c){return{id:"c"+c.id,t:c.t,n:c.n,lat:c.lat,lon:c.lon,p:c.p||"",h:"",c:1,d:dist(me.lat,me.lon,c.lat,c.lon)}}).filter(function(p){return p.d<=r})}
+for(var k in CATS){var o=document.createElement("option");o.value=k;o.textContent=CATS[k].n.replace(/s$/,"");$("at").appendChild(o)}
+$("addp").onclick=function(){var o=$("addout"),n=$("an").value.trim();if(!me){o.textContent="Set your location first.";return}if(n.length<2){o.textContent="Enter a name.";return}
+  fetch("/api/community",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({n:n,t:$("at").value,p:$("ap").value,lat:me.lat,lon:me.lon})})
+  .then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(c){COMM.push(c);var id="c"+c.id;places=places.concat(commNear().filter(function(x){return x.id===id})).sort(function(a,b){return a.d-b.d});o.textContent="Added. Thank you!";$("an").value="";$("ap").value="";render()})
+  .catch(function(){o.textContent="Could not save. Is the server running?"})};
+drawCon();loadComm();
+if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(function(){});
+
+say("bot","Hi! Tell me what you need and I’ll find the closest help.");render();locate();
+</script>
+</body>
+</html>
