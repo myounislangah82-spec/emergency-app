@@ -167,7 +167,7 @@ http
       });
       return;
     }
-    const FILES = { "/manifest.webmanifest": "application/manifest+json", "/sw.js": "text/javascript", "/icon-192.png": "image/png", "/icon-512.png": "image/png" };
+    const FILES = { "/manifest.json": "application/manifest+json", "/sw.js": "text/javascript", "/icon-192.png": "image/png", "/icon-512.png": "image/png" };
     const url = req.url.split("?")[0];
     const file = FILES[url] ? url.slice(1) : "index.html";
     fs.readFile(path.join(__dirname, file), (err, data) => {
