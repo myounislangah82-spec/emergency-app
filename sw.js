@@ -1,5 +1,5 @@
-const CACHE = "nearhelp-v1";
-const SHELL = ["/", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
+const CACHE = "nearhelp-v2";
+const SHELL = ["./", "icon-192.png", "icon-512.png", "manifest.json"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
   self.skipWaiting();
@@ -10,7 +10,7 @@ self.addEventListener("activate", (e) => {
 });
 self.addEventListener("fetch", (e) => {
   const u = new URL(e.request.url);
-  if (e.request.method !== "GET" || u.origin !== location.origin || u.pathname.startsWith("/api")) return;
+  if (e.request.method !== "GET" || u.origin !== location.origin || u.pathname.includes("/api/")) return;
   e.respondWith(
     fetch(e.request)
       .then((r) => {
@@ -18,6 +18,6 @@ self.addEventListener("fetch", (e) => {
         caches.open(CACHE).then((c) => c.put(e.request, copy));
         return r;
       })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match("/")))
+      .catch(() => caches.match(e.request).then((r) => r || caches.match("./")))
   );
 });
