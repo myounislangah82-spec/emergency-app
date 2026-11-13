@@ -6,13 +6,15 @@ const os = require("os");
 const PORT = process.env.PORT || 3000;
 
 const SYSTEM = `You are the assistant inside NearHelp, an app that helps people find nearby hospitals, police stations, petrol pumps, taxis and hostels.
-Reply in the same language the user writes in (English, Urdu or Sindhi). Be short and calm.
+Reply in the user's language (any language). Be short and calm.
 Pick the one category that fits the request: hospital, police, pump, taxi, hostel, mechanic (vehicle repair shop), pharmacy (medical store), or none.
 Never give medical advice or diagnoses. For urgent medical situations tell the user to call 1122 first; for danger or crime, call 15.
 You may use the nearby list given by the app, but never invent places or phone numbers.
 Return ONLY JSON: {"category":"hospital|police|pump|taxi|hostel|mechanic|pharmacy|none","reply":"one or two short sentences"}`;
 
-async function chat(message, nearby) {
+const LANGS = { en: "English", ur: "Urdu", sd: "Sindhi", ar: "Arabic", hi: "Hindi", es: "Spanish", fr: "French", zh: "Simplified Chinese" };
+
+async function chat(message, nearby, lang) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -23,7 +25,7 @@ async function chat(message, nearby) {
     body: JSON.stringify({
       model: "claude-sonnet-5-5",
       max_tokens: 300,
-      system: SYSTEM,
+      system: SYSTEM + `\nThe app language is ${LANGS[lang] || "English"}. Reply in the language the user writes in; if unclear, use the app language.`,
       messages: [{ role: "user", content: `Nearby: ${nearby || "unknown"}\nUser: ${message}` }],
     }),
   });
@@ -39,21 +41,28 @@ const MIRRORS = [
   "https://overpass.private.coffee/api/interpreter",
 ];
 
-function buildQuery(lat, lon, r) {
+// Three smaller searches (spread over different servers) so dense areas are not cut off
+const GROUPS = [
+  [["amenity", "hospital"], ["amenity", "clinic"], ["healthcare", "hospital"], ["healthcare", "clinic"], ["amenity", "police"], ["amenity", "fuel"], ["amenity", "taxi"]],
+  [["amenity", "pharmacy"], ["healthcare", "pharmacy"], ["shop", "chemist"], ["shop", "medical_supply"], ["tourism", "hostel"], ["tourism", "guest_house"], ["building", "dormitory"]],
+  [["shop", "car_repair"], ["shop", "motorcycle_repair"], ["shop", "tyres"]],
+];
+const CACHE = new Map();
+
+function groupQuery(pairs, lat, lon, r) {
   const a = `(around:${r},${lat},${lon})`;
-  const f = (k, v) => `nwr["${k}"="${v}"]${a};`;
-  return `[out:json][timeout:10];(${f("amenity","hospital")}${f("amenity","clinic")}${f("amenity","police")}${f("amenity","fuel")}${f("amenity","taxi")}${f("tourism","hostel")}${f("tourism","guest_house")}${f("amenity","pharmacy")}${f("shop","car_repair")}${f("shop","motorcycle_repair")}${f("shop","tyres")});out center tags 150;`;
+  return `[out:json][timeout:20];(${pairs.map(([k, v]) => `nwr["${k}"="${v}"]${a};`).join("")});out center tags 250;`;
 }
 
-async function overpass(lat, lon, r) {
-  const q = buildQuery(lat, lon, r);
-  for (const m of MIRRORS.slice(0, 2)) {
+async function runQuery(q, start) {
+  for (let i = 0; i < MIRRORS.length; i++) {
+    const m = MIRRORS[(start + i) % MIRRORS.length];
     try {
       const res = await fetch(m, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "NearHelp-hackathon/1.0", accept: "application/json" },
         body: "data=" + encodeURIComponent(q),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000),
       });
       if (res.ok) return await res.json();
       console.log("Overpass:", m, "returned", res.status);
@@ -61,7 +70,34 @@ async function overpass(lat, lon, r) {
       console.log("Overpass:", m, "failed:", e.message);
     }
   }
-  throw new Error("overpass failed");
+  return null;
+}
+
+async function overpass(lat, lon, r) {
+  const key = [lat.toFixed(3), lon.toFixed(3), r].join(",");
+  const hit = CACHE.get(key);
+  if (hit && Date.now() - hit.t < 30 * 60 * 1000) return hit.data;
+  const results = await Promise.all(GROUPS.map((g, i) => runQuery(groupQuery(g, lat, lon, r), i)));
+  const seen = new Set();
+  const elements = [];
+  let failed = 0;
+  for (const j of results) {
+    if (!j) {
+      failed++;
+      continue;
+    }
+    for (const e of j.elements || []) {
+      const k = e.type + e.id;
+      if (!seen.has(k)) {
+        seen.add(k);
+        elements.push(e);
+      }
+    }
+  }
+  if (failed === results.length) throw new Error("overpass failed");
+  const data = { elements, partial: failed > 0 };
+  if (!failed) CACHE.set(key, { t: Date.now(), data });
+  return data;
 }
 
 // Backup source (Nominatim): lighter, fewer details (no phone numbers)
@@ -133,14 +169,12 @@ http
         try {
           const { lat, lon, r } = JSON.parse(body);
           if (![lat, lon, r].every(Number.isFinite) || r > 20000) throw new Error("bad input");
-          const backup = nominatim(lat, lon, r);
-          backup.catch(() => {});
           let out;
           try {
             out = await overpass(lat, lon, r);
           } catch (e) {
             console.log("Using backup source");
-            out = await backup;
+            out = await nominatim(lat, lon, r);
           }
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify(out));
@@ -156,8 +190,8 @@ http
       req.on("data", (c) => (body += c));
       req.on("end", async () => {
         try {
-          const { message, nearby } = JSON.parse(body);
-          const out = await chat(String(message).slice(0, 500), String(nearby || "").slice(0, 800));
+          const { message, nearby, lang } = JSON.parse(body);
+          const out = await chat(String(message).slice(0, 500), String(nearby || "").slice(0, 800), String(lang || "en"));
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify(out));
         } catch (e) {
